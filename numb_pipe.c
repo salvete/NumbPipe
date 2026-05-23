@@ -31,8 +31,24 @@ struct numb_pipe {
 
 static struct numb_pipe *devs;
 
-const struct file_operations numb_fops = {
+static int numb_open(struct inode *inode, struct file *file)
+{
+	struct numb_pipe *pipe;
 
+	pipe = container_of(inode->i_cdev, struct numb_pipe, cdev);
+	file->private_data = pipe;
+	return 0;
+}
+
+static int numb_release(struct inode *inode, struct file *file)
+{
+	file->private_data = NULL;
+	return 0;
+}
+
+const struct file_operations numb_fops = {
+	.open		= numb_open,
+	.release	= numb_release,
 };
 
 static int __init numb_pipe_init(void)
