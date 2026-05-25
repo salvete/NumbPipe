@@ -3,7 +3,7 @@
 #
 obj-m += numbpipe.o
 
-numbpipe-objs := numb_pipe.o numb_sysfs.o
+numbpipe-objs := numb_pipe.o numb_sysfs.o numb_pset.o
 
 all:
 		make -C /lib/modules/$(shell uname -r)/build M=$(PWD)

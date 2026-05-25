@@ -6,6 +6,7 @@
 #include "numb_common.h"
 #include "numb_print.h"
 #include "numb_sysfs.h"
+#include "numb_pset.h"
 #include <linux/fs.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -190,6 +191,11 @@ static int __init numb_pipe_init(void)
 		return -EINVAL;
 	}
 
+	if (!numb_pset_test()) {
+		numb_err("Failed to pass the pset tests.");
+		return -EINVAL;
+	}
+
 	devs = kcalloc(minor, sizeof(struct numb_pipe), GFP_KERNEL);
 	if (!devs)
 		return -ENOMEM;
@@ -251,6 +257,8 @@ static void __exit numb_pipe_exit(void)
 	for (i = 0; i < minor; i++)
 		kfree(devs[i].buf);
 	kfree(devs);
+
+	numb_pset_exit();
 }
 
 module_init(numb_pipe_init);
