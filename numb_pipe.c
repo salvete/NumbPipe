@@ -147,9 +147,11 @@ static ssize_t numb_read(struct file *file, char __user *user_buf, size_t size,
 	size_t to_read;
 	ssize_t err = -EAGAIN;
 
+	mutex_lock(&pipe->lock);
 	to_read = min_t(size_t, pipe->head - pipe->tail, size);
 	if (to_read)
 		err = numb_read_buf(pipe, user_buf, to_read, offset);
+	mutex_unlock(&pipe->lock);
 
 	return err;
 }
@@ -161,10 +163,12 @@ static ssize_t numb_write(struct file *file, const char __user *user_buf,
 	size_t to_write;
 	ssize_t err = -EAGAIN;
 
+	mutex_lock(&pipe->lock);
 	to_write = min_t(size_t, pipe->tail + pipe->len - pipe->head,
 			 size);
 	if (to_write)
 		err = numb_write_buf(pipe, user_buf, size, offset);
+	mutex_unlock(&pipe->lock);
 
 	return err;
 }
@@ -208,6 +212,7 @@ static int __init numb_pipe_init(void)
 			err = -ENOMEM;
 			goto err_devs;
 		}
+		mutex_init(&devs[i].lock);
 	}
 
 	err = register_chrdev_region(MKDEV(major, 0), minor, "numb_pipe");

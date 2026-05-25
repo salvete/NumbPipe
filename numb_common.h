@@ -8,6 +8,7 @@ struct numb_pipe {
 	void *buf;
 	size_t len;
 	size_t head, tail;
+	struct mutex lock;
 };
 
 #endif
