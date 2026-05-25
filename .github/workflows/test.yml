@@ -21,5 +21,8 @@ jobs:
       - name: Build kernel module
         run: make
 
-      - name: Run tests
+      - name: Run basic tests
         run: sudo bash tests/basic.sh
+
+      - name: Run blocking tests
+        run: sudo bash tests/blocking_test.sh
