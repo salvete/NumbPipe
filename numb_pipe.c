@@ -144,33 +144,86 @@ static ssize_t numb_read(struct file *file, char __user *user_buf, size_t size,
 			 loff_t *offset)
 {
 	struct numb_pipe *pipe = file->private_data;
-	size_t to_read;
-	ssize_t err = -EAGAIN;
+	ssize_t ret;
 
-	mutex_lock(&pipe->lock);
-	to_read = min_t(size_t, pipe->head - pipe->tail, size);
-	if (to_read)
-		err = numb_read_buf(pipe, user_buf, to_read, offset);
+	if (!size)
+		return -EAGAIN;
+
+	if (mutex_lock_interruptible(&pipe->lock))
+		return -ERESTARTSYS;
+
+	while (numb_readbuf_empty(pipe)) {
+		/* Non-blocking */
+		if (!numb_contains_p(current->pid)) {
+			mutex_unlock(&pipe->lock);
+			return -EAGAIN;
+		}
+		/* Unlcok before we sleep. */
+		mutex_unlock(&pipe->lock);
+
+		if (wait_event_interruptible_exclusive(pipe->readq,
+				!numb_readbuf_empty(pipe)))
+			return -ERESTARTSYS;
+
+		/* Lock again. */
+		if (mutex_lock_interruptible(&pipe->lock))
+			return -ERESTARTSYS;
+	}
+
+	ret = numb_read_buf(pipe, user_buf, size, offset);
+	wake_up_interruptible(&pipe->writeq);
+
 	mutex_unlock(&pipe->lock);
-
-	return err;
+	return ret;
 }
 
 static ssize_t numb_write(struct file *file, const char __user *user_buf,
 			  size_t size, loff_t *offset)
 {
 	struct numb_pipe *pipe = file->private_data;
-	size_t to_write;
-	ssize_t err = -EAGAIN;
+	ssize_t ret;
 
-	mutex_lock(&pipe->lock);
-	to_write = min_t(size_t, pipe->tail + pipe->len - pipe->head,
-			 size);
-	if (to_write)
-		err = numb_write_buf(pipe, user_buf, size, offset);
+	if (!size)
+		return -EAGAIN;
+
+	if (mutex_lock_interruptible(&pipe->lock))
+		return -ERESTARTSYS;
+
+	while (numb_writebuf_empty(pipe)) {
+		if (!numb_contains_p(current->pid)) {
+			mutex_unlock(&pipe->lock);
+			return -EAGAIN;
+		}
+
+		mutex_unlock(&pipe->lock);
+
+		if (wait_event_interruptible_exclusive(pipe->writeq,
+				!numb_writebuf_empty(pipe)))
+			return -ERESTARTSYS;
+
+		if (mutex_lock_interruptible(&pipe->lock))
+			return -ERESTARTSYS;
+	}
+
+	ret = numb_write_buf(pipe, user_buf, size, offset);
+	wake_up_interruptible(&pipe->readq);
+
 	mutex_unlock(&pipe->lock);
+	return ret;
+}
 
-	return err;
+static long numb_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+	switch(cmd) {
+	case NUMBPIPE_SET_BLOCKING:
+		numb_add_p(current->pid);
+		return 0;
+	case NUMBPIPE_UNSET_BLOCKING:
+		numb_remove_p(current->pid);
+		return 0;
+	default:
+		return -ENOTTY;
+	}
 }
 
 const struct file_operations numb_fops = {
@@ -178,6 +231,7 @@ const struct file_operations numb_fops = {
 	.release	= numb_release,
 	.read		= numb_read,
 	.write		= numb_write,
+	.unlocked_ioctl	= numb_ioctl,
 };
 
 static int __init numb_pipe_init(void)
@@ -213,6 +267,8 @@ static int __init numb_pipe_init(void)
 			goto err_devs;
 		}
 		mutex_init(&devs[i].lock);
+		init_waitqueue_head(&devs[i].readq);
+		init_waitqueue_head(&devs[i].writeq);
 	}
 
 	err = register_chrdev_region(MKDEV(major, 0), minor, "numb_pipe");
